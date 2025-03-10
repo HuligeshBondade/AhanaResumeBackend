@@ -47,8 +47,28 @@ def extract_contact_details(text, filename):
     
     # Extract name from filename
     base_name = os.path.splitext(filename)[0]
-    name = base_name.replace("_", " ").title()
-    result["Name"] = name
+    
+    # List of words to omit
+    words_to_omit = ["resume", "updated", "update", "profile", "cv", "latest", "final", "new", "pdf", "uploaded"]
+    
+    # Replace underscores with spaces
+    name = base_name.replace("_", " ").replace("-", " ")
+    
+    # Remove integers and words to omit
+    for word in words_to_omit:
+        name = re.sub(r'\b' + word + r'\b', '', name, flags=re.IGNORECASE)
+    
+    # Remove any standalone digits
+    name = re.sub(r'\b\d+\b', '', name)
+    
+    # Remove specific symbols: -, (, )
+    name = re.sub(r'[-()]', '', name)
+    
+    # Clean up extra spaces and title case the result
+    name = re.sub(r'\s+', ' ', name).strip().title()
+    
+    if name:
+        result["Name"] = name
     
     # Clean the text
     text = text.replace('\r', '\n')
