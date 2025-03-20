@@ -1074,7 +1074,7 @@ def extract_skills(text):
             "gitlab", "ansible", "terraform", "ci/cd"
         ],
         "Machine Learning & AI": [
-            "tensorflow", "pytorch", "scikit-learn", "keras", 
+            "tensorflow", "pytorch", "scikit-learn", "keras", "numpy", "pandas", 
             "machine learning", "deep learning", "nlp", "computer vision"
         ],
         "Frameworks": [
