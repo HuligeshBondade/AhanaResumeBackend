@@ -52,7 +52,7 @@ def extract_contact_details(text, filename):
     base_name = os.path.splitext(filename)[0]
     
     # List of words to omit
-    words_to_omit = ["resume", "updated", "update", "profile", "cv", "latest", "final", "new", "pdf", "uploaded"]
+    words_to_omit = ["resume", "updated", "update", "profile", "cv", "latest", "final", "new", "pdf", "uploaded", "Developer", "Fresher", "Engineer", "Python", "Java"]
     
     # Replace underscores with spaces
     name = base_name.replace("_", " ").replace("-", " ")
@@ -767,33 +767,38 @@ import re
 def extract_experience(text):
     """
     Extract work experience details from a resume.
-    Returns an array of experience entries as single string entities (combining company, role, and duration),
+    Returns an array of experience entries as strings with all details preserved,
     or an empty array if no experience is found.
     """
-    # First check if an experience section exists
+    # Extract the experience section
     experience_section = extract_experience_section(text)
     if not experience_section:
         return []  # No experience section found
     
-    # Extract individual experience entries
+    # Parse individual experience entries
     entries = parse_experience_entries(experience_section)
     if not entries:
         return []
     
-    # Combine details into a single string for each entry
-    experiences = []
+    # Clean up entries to exclude education or other unrelated content
+    cleaned_entries = []
     for entry in entries:
-        detail = parse_experience_details(entry)
-        if detail:
-            experiences.append(detail)
+        if not contains_education_keywords(entry):
+            cleaned_entries.append(entry)
+        else:
+            # Truncate entry if education content is detected
+            cleaned_entry = cut_off_at_education(entry)
+            if cleaned_entry:
+                cleaned_entries.append(cleaned_entry)
     
-    return experiences
+    return cleaned_entries
 
 def extract_experience_section(text):
     """
     Extract only the experience section from the resume text.
-    Uses section headers and next section detection to isolate experience content.
+    Uses a comprehensive list of headers and strict boundary detection.
     """
+    # Define possible experience section headers
     experience_headers = [
         r"(?:^|\n)\s*WORK EXPERIENCE\s*(?:$|\n)",
         r"(?:^|\n)\s*EMPLOYMENT HISTORY\s*(?:$|\n)",
@@ -803,9 +808,17 @@ def extract_experience_section(text):
         r"(?:^|\n)\s*RELEVANT EXPERIENCE\s*(?:$|\n)",
         r"(?:^|\n)\s*CAREER HISTORY\s*(?:$|\n)",
         r"(?:^|\n)\s*EMPLOYMENT\s*(?:$|\n)",
-        r"(?:^|\n)\s*PROFESSIONAL BACKGROUND\s*(?:$|\n)"
+        r"(?:^|\n)\s*PROFESSIONAL BACKGROUND\s*(?:$|\n)",
+        r"(?:^|\n)\s*CAREER EXPERIENCE\s*(?:$|\n)",
+        r"(?:^|\n)\s*JOB EXPERIENCE\s*(?:$|\n)",
+        r"(?:^|\n)\s*INDUSTRY EXPERIENCE\s*(?:$|\n)",
+        r"(?:^|\n)\s*WORK PROFILE\s*(?:$|\n)",
+        r"(?:^|\n)\s*EMPLOYMENT DETAILS\s*(?:$|\n)",
+        r"(?:^|\n)\s*CAREER PROGRESSION\s*(?:$|\n)",
+        r"(?:^|\n)\s*EMPLOYMENT RECORD\s*(?:$|\n)"
     ]
     
+    # Define headers that indicate the end of the experience section
     next_section_headers = [
         r"(?:^|\n)\s*EDUCATION\s*(?:$|\n)",
         r"(?:^|\n)\s*SKILLS\s*(?:$|\n)",
@@ -815,182 +828,134 @@ def extract_experience_section(text):
         r"(?:^|\n)\s*ACHIEVEMENTS\s*(?:$|\n)",
         r"(?:^|\n)\s*PUBLICATIONS\s*(?:$|\n)",
         r"(?:^|\n)\s*REFERENCES\s*(?:$|\n)",
+        r"(?:^|\n)\s*VOLUNTEER\s*(?:$|\n)",
         r"(?:^|\n)\s*LANGUAGES\s*(?:$|\n)",
         r"(?:^|\n)\s*INTERESTS\s*(?:$|\n)",
-        r"(?:^|\n)\s*VOLUNTEER\s*(?:$|\n)",
         r"(?:^|\n)\s*ADDITIONAL INFORMATION\s*(?:$|\n)",
-        r"(?:^|\n)\s*PERSONAL PROJECTS\s*(?:$|\n)",
-        r"(?:^|\n)\s*EXTRACURRICULAR\s*(?:$|\n)"
+        r"(?:^|\n)\s*TRAINING\s*(?:$|\n)",
+        r"(?:^|\n)\s*HOBBIES\s*(?:$|\n)",
+        r"(?:^|\n)\s*TECHNICAL SKILLS\s*(?:$|\n)",
+        r"(?:^|\n)\s*ACADEMIC PROJECTS\s*(?:$|\n)",
+        r"(?:^|\n)\s*COURSEWORK\s*(?:$|\n)",
+        r"(?:^|\n)\s*TECHNICAL PROFICIENCY\s*(?:$|\n)",
+        r"(?:^|\n)\s*LEADERSHIP\s*(?:$|\n)",
+        r"(?:^|\n)\s*Personal Details\s*(?:$|\n)",
+        r"(?:^|\n)\s*Educational Qualification\s*(?:$|\n)"
     ]
     
-    # Normalize line breaks and whitespace
+    # Normalize text
     text = re.sub(r'\r\n|\r', '\n', text)
     text = re.sub(r'\n+', '\n', text)
     text = text.strip()
     
+    # Find the start of the experience section
     start_idx = -1
     for pattern in experience_headers:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
-            start_idx = match.end()
-            break
+            if start_idx == -1 or match.start() < start_idx:
+                start_idx = match.end()
+    
     if start_idx == -1:
         return ""  # No experience section found
     
+    # Find the end of the experience section
     end_idx = len(text)
     for pattern in next_section_headers:
         match = re.search(pattern, text[start_idx:], re.IGNORECASE)
         if match:
-            end_idx = start_idx + match.start()
-            break
+            temp_end_idx = start_idx + match.start()
+            if temp_end_idx < end_idx:
+                end_idx = temp_end_idx
     
-    experience_section = text[start_idx:end_idx].strip()
-    
-    # Filter out sections that are too short or mostly contain contact info
-    contact_patterns = [
-        r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}',  
-        r'(?:\+\d{1,3}[-\.\s]?)?\(?\d{3}\)?[-\.\s]?\d{3}[-\.\s]?\d{4}',  
-        r'\d{10}',  
-        r'linkedin\.com\/in\/[a-zA-Z0-9_-]+',  
-        r'[a-zA-Z]+\s*\|\s*LinkedIn'
-    ]
-    
-    if len(experience_section) < 20 or experience_section.count('\n') < 2:
-        contact_matches = sum(1 for pattern in contact_patterns if re.search(pattern, experience_section, re.IGNORECASE))
-        if contact_matches > 0:
-            return ""
-    
-    experience_indicators = [
-        r'\b(20\d{2}|19\d{2})[\s,-]+(?:present|current|20\d{2}|19\d{2})\b',
-        r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s,-]+\d{4}',
-        r'\b(?:managed|led|developed|implemented|created|designed|responsible for|collaborated|worked with)\b',
-        r'\b(?:Manager|Engineer|Developer|Analyst|Consultant|Specialist|Director|Coordinator|Supervisor)\b'
-    ]
-    
-    if not any(re.search(pattern, experience_section, re.IGNORECASE) for pattern in experience_indicators):
-        return ""
-        
-    return experience_section
+    return text[start_idx:end_idx].strip()
 
 def parse_experience_entries(experience_section):
     """
     Parse individual experience entries from the experience section.
+    Uses multiple strategies to ensure accurate splitting.
     """
     if not experience_section:
         return []
     
-    # Define common patterns
+    # Define patterns for identifying new entries
     date_pattern = r'(?:\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{4}\b|(?:19|20)\d{2})\s*[-–—]\s*(?:\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{4}\b|(?:19|20)\d{2}|Present|Current|Now)'
-    job_title_pattern = r'\b(?:Senior|Junior|Lead|Chief|Principal|Associate|Assistant)?\s*(?:Software|Systems|Data|Project|Product|Marketing|Sales|HR|Human Resources|Financial|Finance|Web|UI\/UX|Frontend|Backend|Full[ -]Stack|DevOps|QA|Test)?\s*(?:Engineer|Developer|Analyst|Manager|Consultant|Coordinator|Specialist|Director|Designer|Architect|Intern|Administrator|Officer|Executive|Representative|Associate)\b'
+    job_title_pattern = r'\b(?:Senior|Junior|Lead|Chief|Principal|Associate|Assistant|Head|VP|Director|Executive|Manager)?\s*(?:Software|Systems|Data|Project|Product|Marketing|Sales|HR|Human Resources|Financial|Finance|Web|UI\/UX|Frontend|Backend|Full[ -]Stack|DevOps|QA|Test|Operations|Business|Research)?\s*(?:Engineer|Developer|Analyst|Manager|Consultant|Coordinator|Specialist|Director|Designer|Architect|Intern|Administrator|Officer|Executive|Representative|Associate|Lead|Scientist)\b'
     company_pattern = r'\b[A-Z][A-Za-z0-9\s,\.&\'-]+(?:Inc|LLC|Ltd|Corporation|Corp|Company|Co|Group|GmbH)?\b'
     
-    # Approach 1: Split by blank lines.
-    entries = re.split(r'\n\s*\n', experience_section)
+    entries = []
     
-    # Approach 2: If the above yields one entry, try splitting using date patterns.
-    if len(entries) <= 1:
+    # Strategy 1: Split by blank lines
+    blank_line_entries = re.split(r'\n\s*\n', experience_section)
+    if len(blank_line_entries) > 1:
+        entries = [entry.strip() for entry in blank_line_entries if entry.strip()]
+    else:
+        # Strategy 2: Split by date and job/company headers
         lines = experience_section.split('\n')
         current_entry = []
         all_entries = []
-        for i, line in enumerate(lines):
-            if re.search(date_pattern, line, re.IGNORECASE) and (i == 0 or not re.search(date_pattern, lines[i-1], re.IGNORECASE)):
+        
+        for line in lines:
+            date_match = re.search(date_pattern, line, re.IGNORECASE)
+            job_match = re.search(job_title_pattern, line, re.IGNORECASE)
+            company_match = re.search(company_pattern, line, re.IGNORECASE)
+            
+            # Start a new entry if line has a date and job/company info
+            if date_match and (job_match or company_match) and not line.strip().startswith(('-', '•', '*')):
                 if current_entry:
                     all_entries.append('\n'.join(current_entry))
                 current_entry = [line]
-            else:
+            elif line.strip():  # Only append non-empty lines
                 current_entry.append(line)
-        if current_entry:
-            all_entries.append('\n'.join(current_entry))
-        if len(all_entries) > 1:
-            entries = all_entries
-    
-    # Approach 3: If needed, try splitting by job titles or company names.
-    if len(entries) <= 1:
-        lines = experience_section.split('\n')
-        current_entry = []
-        all_entries = []
-        for i, line in enumerate(lines):
-            if ((re.search(job_title_pattern, line, re.IGNORECASE) or 
-                 re.search(company_pattern, line, re.IGNORECASE)) and 
-                len(line) < 100 and i > 0):
-                if not re.search(r'[.,:;]$', lines[i-1]) and not re.search(r'^[a-z]', line):
-                    if current_entry:
-                        all_entries.append('\n'.join(current_entry))
-                    current_entry = [line]
-                    continue
-            current_entry.append(line)
-        if current_entry:
-            all_entries.append('\n'.join(current_entry))
-        if len(all_entries) > 1:
-            entries = all_entries
-    
-    # Filter entries to ensure they contain actual experience information.
-    valid_entries = []
-    for entry in entries:
-        entry = entry.strip()
-        if not entry:
-            continue
-        has_date = re.search(date_pattern, entry, re.IGNORECASE)
-        has_job_title = re.search(job_title_pattern, entry, re.IGNORECASE)
-        has_job_verbs = re.search(r'\b(?:managed|led|developed|implemented|created|designed|responsible for|collaborated|worked with)\b', 
-                                 entry, re.IGNORECASE)
-        is_contact = re.search(r'(?:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|(?:\+\d{1,3}[-\.\s]?)?\(?\d{3}\)?[-\.\s]?\d{3}[-\.\s]?\d{4}|\d{10}|linkedin\.com)', 
-                              entry, re.IGNORECASE)
-        if (has_date or has_job_title or has_job_verbs) and not is_contact:
-            valid_entries.append(entry)
-    
-    return valid_entries
-
-def parse_experience_details(entry):
-    """
-    Extract a combined string of company, role, and duration from a single experience entry.
-    Returns a single string that combines all details.
-    """
-    # Regex for date range (e.g., "July 2021 - Present" or "Aug 2023 – Sep 2023")
-    date_range_pattern = r'((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})\s*[-–—]\s*((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}|Present|Current|Now|(?:19|20)\d{2})'
-    date_match = re.search(date_range_pattern, entry, re.IGNORECASE)
-    duration = date_match.group(0) if date_match else ""
-    
-    lines = entry.split('\n')
-    header_line = lines[0].strip() if lines else entry.strip()
-    
-    company = ""
-    role = ""
-    
-    # If the header uses '|' as delimiter, assume format: Role | Company | (optional details) | Duration
-    if '|' in header_line:
-        tokens = [token.strip() for token in header_line.split('|')]
-        if len(tokens) >= 2:
-            role = tokens[0]
-            company = tokens[1]
-        if tokens and re.search(date_range_pattern, tokens[-1], re.IGNORECASE):
-            duration = tokens[-1]
-    else:
-        # Remove the duration from the header (if present) to isolate company info.
-        if not duration:
-            duration_match = re.search(date_range_pattern, header_line, re.IGNORECASE)
-            if duration_match:
-                duration = duration_match.group(0)
-        if duration:
-            company_candidate = header_line.replace(duration, '').strip()
-            company = re.sub(r'[\s,-]+$', '', company_candidate)
-        else:
-            company = header_line
         
-        # Assume that the next line (if available) contains the role.
-        if len(lines) > 1:
-            role = lines[1].strip()
+        if current_entry:
+            all_entries.append('\n'.join(current_entry))
+        
+        entries = all_entries if len(all_entries) > 1 else [experience_section]
     
-    # Combine the details into a single string entity.
-    details = []
-    if company:
-        details.append(company)
-    if role:
-        details.append(role)
-    if duration:
-        details.append(duration)
+    return [entry.strip() for entry in entries if entry.strip()]
+
+def contains_education_keywords(text):
+    """
+    Check if text contains education-related keywords.
+    """
+    education_keywords = [
+        r'\bEDUCATION\b',
+        r'\bDEGREE\b',
+        r'\bB\.?S\.?\b', r'\bB\.?A\.?\b', r'\bM\.?S\.?\b', r'\bM\.?A\.?\b', r'\bPh\.?D\.?\b',
+        r'\bBachelor(?:\'?s)?\b', r'\bMaster(?:\'?s)?\b', r'\bDoctorate\b',
+        r'\bUniversity\b', r'\bCollege\b', r'\bInstitute\b', r'\bSchool\b',
+        r'\bAcademic\b', r'\bGPA\b', r'\bCourse(?:work)?\b',
+        r'\bMajor\b', r'\bMinor\b', r'\bGraduate[d]?\b',
+        r'\bClass of\b', r'\bCommencement\b'
+    ]
     
-    return " | ".join(details)
+    for keyword in education_keywords:
+        if re.search(keyword, text, re.IGNORECASE):
+            return True
+    return False
+
+def cut_off_at_education(text):
+    """
+    Truncate text at the point where education-related content begins.
+    """
+    education_keywords = [
+        r'\bEDUCATION\b',
+        r'\bDEGREE\b',
+        r'\bB\.?S\.?\b', r'\bB\.?A\.?\b', r'\bM\.?S\.?\b', r'\bM\.?A\.?\b', r'\bPh\.?D\.?\b',
+        r'\bBachelor(?:\'?s)?\b', r'\bMaster(?:\'?s)?\b', r'\bDoctorate\b',
+        r'\bUniversity\b', r'\bCollege\b', r'\bInstitute\b', r'\bSchool\b',
+        r'\bAcademic\b', r'\bGPA\b', r'\bCourse(?:work)?\b',
+        r'\bMajor\b', r'\bMinor\b', r'\bGraduate[d]?\b',
+        r'\bClass of\b', r'\bCommencement\b'
+    ]
+    
+    lines = text.split('\n')
+    for i, line in enumerate(lines):
+        for keyword in education_keywords:
+            if re.search(keyword, line, re.IGNORECASE):
+                return '\n'.join(lines[:i]).strip() if i > 0 else ""
+    return text
 
 def has_work_experience_section(text):
     """
@@ -1005,7 +970,14 @@ def has_work_experience_section(text):
         r"(?:^|\n)\s*RELEVANT EXPERIENCE\s*(?:$|\n)",
         r"(?:^|\n)\s*CAREER HISTORY\s*(?:$|\n)",
         r"(?:^|\n)\s*EMPLOYMENT\s*(?:$|\n)",
-        r"(?:^|\n)\s*PROFESSIONAL BACKGROUND\s*(?:$|\n)"
+        r"(?:^|\n)\s*PROFESSIONAL BACKGROUND\s*(?:$|\n)",
+        r"(?:^|\n)\s*CAREER EXPERIENCE\s*(?:$|\n)",
+        r"(?:^|\n)\s*JOB EXPERIENCE\s*(?:$|\n)",
+        r"(?:^|\n)\s*INDUSTRY EXPERIENCE\s*(?:$|\n)",
+        r"(?:^|\n)\s*WORK PROFILE\s*(?:$|\n)",
+        r"(?:^|\n)\s*EMPLOYMENT DETAILS\s*(?:$|\n)",
+        r"(?:^|\n)\s*CAREER PROGRESSION\s*(?:$|\n)",
+        r"(?:^|\n)\s*EMPLOYMENT RECORD\s*(?:$|\n)"
     ]
     
     for pattern in experience_headers:
@@ -1016,8 +988,7 @@ def has_work_experience_section(text):
 def process_resume(text):
     """
     Main function to process a resume and extract work experience.
-    Returns a list of single string entities containing combined experience details,
-    or a message if no experience is found.
+    Returns experience details as a list of strings or a message if none found.
     """
     if not has_work_experience_section(text):
         return "No experience section found in the resume."
@@ -1028,26 +999,32 @@ def process_resume(text):
     
     return experiences
 
-# Example usage:
-if __name__ == "__main__":
-    sample_text = """
-    WORK EXPERIENCE
-    PowerSchool India Pvt Ltd, Bengaluru July 2021 - Present
-    Senior Software Development Engineer 1
-    - Reduced infrastructure costs...
-    
-    Fiserv India Pvt Ltd, Bengaluru July 2018 - June 2021
-    Software Development Engineer, Sr. Associate
-    - Led multiple implementations...
-    
-    EDUCATION
-    GM Institute of Technology, Davangere
-    """
-    
-    result = process_resume(sample_text)
-    print(result)
+# # Example usage
+# if __name__ == "__main__":
+#     sample_resume = """
+#     John Doe
+#     Email: john.doe@example.com
 
-import re
+#     WORK EXPERIENCE
+#     Software Engineer - TechCorp Inc
+#     June 2018 - Present
+#     - Developed web applications using Python and Django
+#     - Collaborated with cross-functional teams
+
+#     Junior Developer - StartUp Co
+#     Jan 2016 - May 2018
+#     - Built RESTful APIs
+#     - Assisted in database design
+
+#     EDUCATION
+#     B.S. in Computer Science - University of XYZ
+#     2012 - 2016
+#     """
+#     result = process_resume(sample_resume)
+#     for entry in result:
+#         print("Experience Entry:")
+#         print(entry)
+#         print()
 
 def extract_skills(text):
     """Extract skills with strict pattern matching for predefined keywords."""
@@ -1070,11 +1047,11 @@ def extract_skills(text):
             "amazon web services", "cloud computing"
         ],
         "DevOps & Tools": [
-            "docker", "kubernetes", "jenkins", "git", "github", 
+            "docker", "kubernetes", "jenkins", "git", "github", "ms office",
             "gitlab", "ansible", "terraform", "ci/cd"
         ],
         "Machine Learning & AI": [
-            "tensorflow", "pytorch", "scikit-learn", "keras", "numpy", "pandas", 
+            "tensorflow", "pytorch", "scikit-learn", "keras", "numpy", "pandas", "matlab & simulink",
             "machine learning", "deep learning", "nlp", "computer vision"
         ],
         "Frameworks": [
@@ -1109,36 +1086,482 @@ def extract_skills(text):
     
     return list(skills)
 
+import re
+
+def is_section_header(line, headers):
+    """
+    Check if a line is a section header by matching it exactly or with a colon.
+    
+    Args:
+        line (str): The line to check
+        headers (list): List of header strings to match against
+    
+    Returns:
+        bool: True if the line is a section header, False otherwise
+    """
+    line = line.strip()
+    for header in headers:
+        # Match if the line is exactly the header or starts with header followed by a colon
+        if line.lower() == header.lower() or line.lower().startswith(header.lower() + ':'):
+            return True
+    return False
+
+def extract_projects(text):
+    """
+    Extract project details from the resume, capturing all descriptions under the section title.
+    
+    Args:
+        text (str): The resume text content
+        
+    Returns:
+        list: List of strings, each representing a project entry with its full description
+    """
+    # Expanded list of possible project section headers
+    project_headers = [
+        "Projects",
+        "PROJECTS",
+        "Project",
+        "Project Details",
+        "Professional Projects",
+        "Academic Projects",
+        "Project Experience",
+        "Personal Projects",
+        "Key Projects"
+    ]
+    
+    # Define all possible section headers to detect the end of the projects section
+    all_section_headers = [
+        "Summary",
+        "Objective",
+        "Education",
+        "Work Experience",
+        "Professional Experience",
+        "Skills",
+        "Technical Skills",
+        "Certifications",
+        "Certificates",
+        "Awards",
+        "Publications",
+        "References",
+        "Experience",
+        "Internships",
+        "Achievements",
+        "Hobbies",
+        "Certification courses",
+        "courses",
+        "Presentations",
+        "Declaration",
+        "Extra curricular activities",
+        "Education background",
+        "Introduction",
+        "Workshops",
+        "Personal profile"
+    ]
+    
+    # Split the text into lines for processing
+    lines = text.split('\n')
+    
+    # Find the start of the projects section
+    start_line = None
+    for i, line in enumerate(lines):
+        if is_section_header(line, project_headers):
+            start_line = i
+            break
+    
+    # If no projects section is found, return an empty list
+    if start_line is None:
+        return []
+    
+    # Find the end of the projects section
+    end_line = len(lines)
+    for j in range(start_line + 1, len(lines)):
+        if is_section_header(lines[j], all_section_headers):
+            end_line = j
+            break
+    
+    # Extract the projects section content
+    section_lines = lines[start_line + 1:end_line]
+    projects_section = '\n'.join(section_lines).strip()
+    
+    # If the section is empty, return an empty list
+    if not projects_section:
+        return []
+    
+    # First attempt: Split by blank lines to separate individual project entries
+    entries = re.split(r'\n\s*\n', projects_section)
+    if len(entries) > 1:
+        return [entry.strip() for entry in entries if entry.strip()]
+    
+    # Second attempt: Split by bullet points (•, -, or *) if blank lines don't work
+    entries = re.split(r'(?m)^[•\-\*]\s+', projects_section)
+    if len(entries) > 1:
+        # The first entry might be text before the first bullet; discard if empty
+        if not entries[0].strip():
+            entries = entries[1:]
+        return [entry.strip() for entry in entries if entry.strip()]
+    
+    # Fallback: Return the entire section as a single entry if no splitting works
+    return [projects_section.strip()]
+
+# Example usage (for testing purposes)
+if __name__ == "__main__":
+    sample_resume = """
+    Education
+    B.S. in Computer Science, XYZ University
+
+    Projects
+    Project 1: Built a web app using Python
+    - Worked on backend development
+    Project 2: Developed a mobile app
+    - Focused on UI design
+
+    Skills
+    Python, Java, UI/UX
+    """
+    projects = extract_projects(sample_resume)
+    for idx, project in enumerate(projects, 1):
+        print(f"Project {idx}:")
+        print(project)
+        print()
+
+import re
+
+def extract_section(text, possible_headers):
+    """
+    Extract a section from the text based on possible headers.
+    
+    Args:
+        text (str): The full text to search in
+        possible_headers (list): List of possible section headers to look for
+        
+    Returns:
+        tuple: (extracted section text, next section start position)
+    """
+    # Pattern for headers at the start of a line, followed by colon, whitespace, or end of line
+    pattern = r'(?im)^(?:' + '|'.join(re.escape(header) for header in possible_headers) + r')(?:[:\s]|$)'
+    matches = list(re.finditer(pattern, text))
+    
+    if not matches:
+        return "", -1
+    
+    # Use the first match as the start of the section
+    start_match = matches[0]
+    start_pos = start_match.start()
+    
+    # Comprehensive list of common resume section headers
+    all_possible_headers = [
+        "Objective", "Career Objective", "Professional Objective", "Carrer Objectives",
+        "Summary", "Professional Summary", "Summary of Qualifications",
+        "Profile", "Personal Profile", "Professional Profile",
+        "Education", "Academic Background", "Educational Qualifications", "Educational Qualification", "Degrees", "Academic Achievements",
+        "Experience", "Work Experience", "Professional Experience", "Employment History", "Work History", "Career History",
+        "Internships", "Co-op Experience", "Volunteer Experience", 
+        "Skills", "Technical Skills", "Professional Skills", "Key Skills", "Core Competencies", "Areas of Expertise", "Proficiencies",
+        "Languages", "Programming Languages", "Software Skills", "Tools and Technologies",
+        "Certifications", "Licenses", "Professional Certifications", "Technical Certifications", "Training and Certifications", "Professional Development",
+        "Courses", "Workshops", "Seminars", "Conferences",
+        "Projects", "Academic Projects", "Research Projects", "Personal Projects", "Portfolio", "Project", "Achievements",
+        "Awards", "Honors", "Scholarships",
+        "Publications", "Patents", "Presentations",
+        "Activities", "Extracurricular Activities", "Leadership", "Memberships", "Professional Affiliations",
+        "Volunteer Work", "Community Service",
+        "Interests", "Hobbies", "Personal Interests",
+        "References", "Testimonials", "Recommendations",
+        "Contact Information", "Personal Details", "About Me",
+        "Declaration", "Additional Information", "Miscellaneous",
+        "Organizations", "Enthusiastic"
+    ]
+    
+    # Generate patterns for all possible headers
+    section_headers = [r'(?im)^' + re.escape(header) + r'[:\s]' for header in all_possible_headers]
+    
+    # Determine the end of the section
+    end_pos = len(text)
+    for pattern in section_headers:
+        next_section_match = re.search(pattern, text[start_pos + 1:])
+        if next_section_match:
+            candidate_end_pos = start_pos + 1 + next_section_match.start()
+            if candidate_end_pos < end_pos:
+                end_pos = candidate_end_pos
+    
+    # Extract content from after the header to the end position
+    section_content = text[start_match.end():end_pos].strip()
+    
+    return section_content, end_pos
+
+def parse_certification_entries(certifications_section):
+    """
+    Parse the certification section into individual entries.
+    
+    Args:
+        certifications_section (str): The text content of the certifications section
+        
+    Returns:
+        list: List of certification entries
+    """
+    if not certifications_section:
+        return []
+    
+    # Patterns for bullet points and numbered lists
+    bullet_pattern = r'(?m)^[\s]*[•\-\*][\s]+'
+    numbered_pattern = r'(?m)^[\s]*\d+\.[\s]+'
+    
+    if re.search(bullet_pattern, certifications_section):
+        # Split by bullet points
+        raw_entries = re.split(bullet_pattern, certifications_section)
+        entries = [entry.strip() for entry in raw_entries if entry.strip()]
+        
+        # Remove introductory text if present
+        if entries and len(entries) > 1:
+            first_entry = entries[0].lower()
+            if not any(keyword in first_entry for keyword in ["certif", "train", "course", "program", "diploma"]):
+                entries = entries[1:]
+        return entries
+    
+    elif re.search(numbered_pattern, certifications_section):
+        # Split by numbered points
+        raw_entries = re.split(numbered_pattern, certifications_section)
+        entries = [entry.strip() for entry in raw_entries if entry.strip()]
+        
+        # Remove introductory text if present
+        if entries and len(entries) > 1:
+            first_entry = entries[0].lower()
+            if not any(keyword in first_entry for keyword in ["certif", "train", "course", "program", "diploma"]):
+                entries = entries[1:]
+        return entries
+    
+    else:
+        # Split by blank lines
+        entries = re.split(r'\n\s*\n', certifications_section)
+        return [entry.strip() for entry in entries if entry.strip()]
+
+def extract_certifications(text):
+    """
+    Extract certification details from the resume, capturing all descriptions under the section title.
+    
+    Args:
+        text (str): The resume text content
+        
+    Returns:
+        list: List of strings, each representing a certification entry with its full description
+    """
+    # Possible certification section headers
+    certification_headers = [
+        "Certifications", "Certificate", "Certificates", "CERTIFICATES", "Courses", "CERTIFICATION COURSES", 
+        "Professional Certifications", "Licenses", "Certification", "Internships", 
+        "Training and Certifications", "Professional Development", "CERTIFICATIONS",
+        "CERTIFICATION", "Certified In", "Certification and Achievements", "Internships Certifications"
+    ]
+    
+    # Extract the certifications section
+    certifications_section, _ = extract_section(text, certification_headers)
+    
+    # Fallback if no dedicated section is found
+    if not certifications_section:
+        cert_keywords = [
+            r'(?i)certified in', r'(?i)certification in',
+            r'(?i)certificate in', r'(?i)certified as'
+        ]
+        for keyword in cert_keywords:
+            keyword_matches = list(re.finditer(keyword, text))
+            if keyword_matches:
+                cert_info = []
+                for match in keyword_matches:
+                    start = max(0, match.start() - 50)
+                    end = min(len(text), match.end() + 100)
+                    context = text[start:end]
+                    natural_end = re.search(r'(?:\n\s*\n|\.\s+[A-Z])', context)
+                    if natural_end:
+                        context = context[:natural_end.end()]
+                    cert_info.append(context.strip())
+                if cert_info:
+                    return cert_info
+    
+    # Parse the section into entries
+    return parse_certification_entries(certifications_section)
+
+# Example usage (for testing)
+if __name__ == "__main__":
+    resume_text = """
+    Contact Information
+    John Doe
+    Email: john@example.com
+    
+    Certifications:
+    - Project Management Professional (PMP), PMI, 2020
+    - Certified ScrumMaster (CSM)
+      Issued by Scrum Alliance, 2021
+    
+    Experience:
+    Software Engineer, ABC Corp, 2018-2022
+    """
+    certifications = extract_certifications(resume_text)
+    for entry in certifications:
+        print("Certification Entry:", entry)
+
 def generate_ats_score(parsed_data):
-    """Generate a simple ATS score based on the extracted data."""
+    """Generate a comprehensive ATS score based on extracted resume data.
+    
+    The scoring algorithm evaluates:
+    - Contact information completeness (20%)
+    - Education quality and relevance (25%)
+    - Work experience depth and relevance (35%)
+    - Skills breadth and relevance (20%)
+    """
     score = 0
     max_score = 100
     
-    # Check if we have basic contact information
+    # 1. Contact Information Evaluation (20 points)
+    contact_score = 0
     if parsed_data["contact_details"]["Name"] != "Not Found":
-        score += 10
+        contact_score += 7
     if parsed_data["contact_details"]["Email"] != "Not Found":
-        score += 10
+        contact_score += 7
     if parsed_data["contact_details"]["Phone"] != "Not Found":
-        score += 10
-        
-    # Check education
+        contact_score += 6
+    
+    # 2. Education Evaluation (25 points)
+    education_score = 0
     if parsed_data["education"] and len(parsed_data["education"]) > 0:
-        score += 20
+        # Base points for having education listed
+        education_score += 10
         
-    # Check experience
+        # Additional points based on number of degrees (up to 3)
+        education_count = min(len(parsed_data["education"]), 3)
+        education_score += education_count * 5
+    
+    # 3. Experience Evaluation (35 points)
+    experience_score = 0
     if parsed_data["experience"] and len(parsed_data["experience"]) > 0:
-        score += 25
+        # Base points for having experience listed
+        experience_score += 10
         
-    # Check skills
+        # Additional points based on experience entries (up to 5)
+        experience_count = min(len(parsed_data["experience"]), 5)
+        experience_score += experience_count * 3
+        
+        # Additional points for experience descriptions
+        has_descriptions = any(
+            "description" in exp and exp["description"] and len(exp["description"]) > 10 
+            for exp in parsed_data["experience"]
+        )
+        if has_descriptions:
+            experience_score += 10
+    
+    # 4. Skills Evaluation (20 points)
+    skills_score = 0
     if parsed_data["skills"] and len(parsed_data["skills"]) > 0:
-        score += 25
+        # Base points for having skills listed
+        skills_score += 5
         
+        # Additional points based on number of skills (up to 15 skills)
+        skills_count = min(len(parsed_data["skills"]), 15)
+        skills_score += (skills_count / 15) * 15
+    
+    # Calculate total score
+    score = contact_score + education_score + experience_score + skills_score
+    
+    # Round to nearest integer
+    score = round(score)
+    
+    # Prepare detailed feedback
+    feedback = {
+        "contact": {
+            "score": contact_score,
+            "max": 20,
+            "feedback": get_contact_feedback(parsed_data["contact_details"])
+        },
+        "education": {
+            "score": education_score,
+            "max": 25,
+            "feedback": get_education_feedback(parsed_data["education"])
+        },
+        "experience": {
+            "score": experience_score,
+            "max": 35,
+            "feedback": get_experience_feedback(parsed_data["experience"])
+        },
+        "skills": {
+            "score": skills_score,
+            "max": 20,
+            "feedback": get_skills_feedback(parsed_data["skills"])
+        }
+    }
+    
     return {
         "score": score,
         "max_score": max_score,
-        "percentage": f"{score}%"
+        "percentage": f"{score}%",
+        "detailed_scores": feedback,
+        "rating": get_rating(score)
     }
+
+def get_contact_feedback(contact_details):
+    """Generate feedback on contact information."""
+    missing = []
+    if contact_details["Name"] == "Not Found":
+        missing.append("name")
+    if contact_details["Email"] == "Not Found":
+        missing.append("email")
+    if contact_details["Phone"] == "Not Found":
+        missing.append("phone number")
+    
+    if not missing:
+        return "All essential contact information provided."
+    else:
+        return f"Missing {', '.join(missing)}. Complete contact information improves ATS visibility."
+
+def get_education_feedback(education):
+    """Generate feedback on education section."""
+    if not education or len(education) == 0:
+        return "No education details found. Adding educational background enhances your profile."
+    elif len(education) == 1:
+        return "Basic education information provided. Consider adding more details about courses, achievements, or additional certifications."
+    else:
+        return f"Strong education section with {len(education)} entries. Well structured educational background."
+
+def get_experience_feedback(experience):
+    """Generate feedback on work experience section."""
+    if not experience or len(experience) == 0:
+        return "No work experience found. Adding relevant work history is crucial for most positions."
+    
+    has_descriptions = any(
+        "description" in exp and exp["description"] and len(exp["description"]) > 10 
+        for exp in experience
+    )
+    
+    if not has_descriptions:
+        return f"{len(experience)} work experiences listed, but detailed descriptions are missing. Add specific accomplishments and responsibilities."
+    elif len(experience) <= 2:
+        return f"{len(experience)} work experiences with descriptions. Consider adding more relevant work history if available."
+    else:
+        return f"Strong work history with {len(experience)} detailed positions. Good demonstration of career progression."
+
+def get_skills_feedback(skills):
+    """Generate feedback on skills section."""
+    if not skills or len(skills) == 0:
+        return "No skills listed. Adding relevant skills significantly improves ATS matching."
+    elif len(skills) < 5:
+        return f"Only {len(skills)} skills listed. Consider expanding your skills section with both technical and soft skills."
+    elif len(skills) < 10:
+        return f"{len(skills)} skills listed. Good range of skills, but consider adding more industry-specific keywords."
+    else:
+        return f"Excellent skills section with {len(skills)} skills. Good balance of technical and professional skills."
+
+def get_rating(score):
+    """Generate a qualitative rating based on the score."""
+    if score >= 90:
+        return "Excellent"
+    elif score >= 75:
+        return "Very Good"
+    elif score >= 60:
+        return "Good"
+    elif score >= 45:
+        return "Average"
+    elif score >= 30:
+        return "Below Average"
+    else:
+        return "Needs Improvement"
 
 # Added for root endpoint compatibility (for backward compatibility)
 @app.route("/", methods=["POST"])
@@ -1174,7 +1597,9 @@ def upload_resume():
                 "contact_details": extract_contact_details(text, file.filename),
                 "education": extract_education(text),
                 "experience": extract_experience(text),
-                "skills": extract_skills(text)
+                "skills": extract_skills(text),
+                "projects": extract_projects(text),
+                "certifications": extract_certifications(text)
             }
             
             # Generate ATS score
